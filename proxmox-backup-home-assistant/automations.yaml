@@ -1,0 +1,27 @@
+- id: pbs_backup_cycle
+  alias: PBS Backup Cycle
+  description: ''
+  triggers:
+    - trigger: time
+      at: '03:00:00'
+  conditions: []
+  actions:
+    - action: wake_on_lan.send_magic_packet
+      data:
+        broadcast_port: 9
+        mac: PBS_MAC
+    - wait_template: "{{ is_state('binary_sensor.pbs_online', 'on') }}"
+      timeout: '00:10:00'
+      continue_on_timeout: false
+    - delay: '00:00:30'
+    - action: rest_command.pve_start_backup
+    - wait_for_trigger:
+        - trigger: webhook
+          allowed_methods:
+            - POST
+            - PUT
+          local_only: true
+          webhook_id: pbs_backup_complete
+      timeout: '04:00:00'
+    - action: rest_command.pbs_shutdown
+  mode: single

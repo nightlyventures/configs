@@ -1,0 +1,20 @@
+wake_on_lan:
+
+rest_command:
+  pve_start_backup:
+    url: "https://PVE_IP:8006/api2/json/nodes/pve/vzdump"
+    method: POST
+    headers:
+      Authorization: !secret pve_api_token
+    content_type: "application/x-www-form-urlencoded"
+    payload: "storage=pbs&mode=snapshot&compress=zstd&all=1"
+    verify_ssl: false
+
+  pbs_shutdown:
+    url: "https://PBS_IP:8007/api2/json/nodes/localhost/status"
+    method: POST
+    headers:
+      Authorization: !secret pbs_api_token
+    content_type: "application/x-www-form-urlencoded"
+    payload: "command=shutdown"
+    verify_ssl: false

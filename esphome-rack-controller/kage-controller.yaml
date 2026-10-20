@@ -1,0 +1,546 @@
+# ESPHome configuration for the QuinLED Dig-Quad ABE (Kage rack controller)
+# PID fan control, fan ARGB, DS18B20 temperature, per-rack-unit lights, master switch
+# Tested on ESPHome 2026.9
+
+esphome:
+  name: kage-controller
+  friendly_name: "Kage Rack Controller"
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+    version: recommended
+
+globals:
+  # Default idle color for the fans (set via the set_default_color service)
+  - id: default_red
+    type: int
+    restore_value: true
+    initial_value: '255'
+  - id: default_green
+    type: int
+    restore_value: true
+    initial_value: '255'
+  - id: default_blue
+    type: int
+    restore_value: true
+    initial_value: '255'
+
+  # PID color control flag - when false, effects override PID colors
+  - id: allow_pid_color_control
+    type: bool
+    restore_value: true
+    initial_value: 'true'
+
+  # When false, the PID never turns the fan lights on (lights stay off while cooling changes)
+  - id: master_lights_enabled
+    type: bool
+    restore_value: true
+    initial_value: 'true'
+
+.effect_templates:
+  effects: &all_effects
+    - addressable_rainbow:
+    - addressable_color_wipe:
+    - addressable_scan:
+    - addressable_twinkle:
+    - addressable_random_twinkle:
+    - addressable_fireworks:
+    - addressable_flicker:
+        name: "Flicker"  # match the select option (default name is "Addressable Flicker")
+    - strobe:
+    # Built-in pulse: time-based, so the speed doesn't depend on loop speed.
+    # 2s fade + 1s hold at each end = 6s cycle.
+    - pulse:
+        name: "Breathing"
+        transition_length: 2s
+        update_interval: 3s
+        min_brightness: 50%
+        max_brightness: 85%
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+  actions:
+    - action: set_default_color
+      variables:
+        red: int
+        green: int
+        blue: int
+      then:
+        - globals.set:
+            id: default_red
+            value: !lambda 'return red;'
+        - globals.set:
+            id: default_green
+            value: !lambda 'return green;'
+        - globals.set:
+            id: default_blue
+            value: !lambda 'return blue;'
+
+    - action: set_pid_color_control
+      variables:
+        enabled: bool
+      then:
+        - globals.set:
+            id: allow_pid_color_control
+            value: !lambda 'return enabled;'
+
+ota:
+  - platform: esphome
+
+# GPIO1/GPIO3 double as UART pins; the fan ARGB channels work fine with the logger enabled here
+logger:
+  baud_rate: 115200
+
+# Ethernet Configuration (QuinLED-ESP32-ABE variant)
+ethernet:
+  type: LAN8720
+  mdc_pin: GPIO23
+  mdio_pin: GPIO18
+  clk:
+    pin: GPIO17
+    mode: CLK_OUT
+  phy_addr: 0
+  power_pin: GPIO5
+
+  manual_ip:
+    static_ip: !secret controller_ip
+    gateway: !secret gateway_ip
+    subnet: 255.255.255.0
+    dns1: !secret gateway_ip
+
+# One-Wire bus for DS18B20 temperature sensor
+one_wire:
+  - platform: gpio
+    pin: GPIO13
+
+sensor:
+  # DS18B20 Temperature Sensor - sensor.kage_controller_kage_temperature
+  - platform: dallas_temp
+    name: "Kage Temperature"
+    id: kage_temp
+    update_interval: 5s
+    accuracy_decimals: 1
+    filters:
+      - sliding_window_moving_average:
+          window_size: 3
+          send_every: 1
+
+  # pulse_counter reports pulses per minute; the fans give 2 pulses per rotation
+  - platform: pulse_counter
+    pin:
+      number: GPIO12 # Q2
+      mode: INPUT_PULLUP
+    name: "Fan Left RPM"
+    id: fan_left_rpm
+    update_interval: 5s
+    internal_filter: 13us
+    filters:
+      - multiply: 0.5
+    unit_of_measurement: "RPM"
+    accuracy_decimals: 0
+
+  - platform: pulse_counter
+    pin:
+      number: GPIO32 # Q4
+      mode: INPUT_PULLUP # Required for Be quiet! open-collector tacho
+    name: "Fan Right RPM"
+    id: fan_right_rpm
+    update_interval: 5s
+    internal_filter: 13us
+    filters:
+      - multiply: 0.5
+    unit_of_measurement: "RPM"
+    accuracy_decimals: 0
+
+  - platform: uptime
+    name: "Uptime"
+    entity_category: diagnostic
+
+# Fan PWM Outputs
+output:
+  - platform: ledc
+    pin: GPIO15 # Q1
+    id: fan_left_pwm_output
+    frequency: 25000 Hz # For quiet operation
+    min_power: 0.1 # Start boost to prevent fan stall
+
+  - platform: ledc
+    pin: GPIO2 # Q3
+    id: fan_right_pwm_output
+    frequency: 25000 Hz
+    min_power: 0.1
+
+  # Template output that controls both fans together
+  - platform: template
+    id: both_fans_output
+    type: float
+    write_action:
+      - output.set_level:
+          id: fan_left_pwm_output
+          level: !lambda 'return state;'
+      - output.set_level:
+          id: fan_right_pwm_output
+          level: !lambda 'return state;'
+      - lambda: |-
+          // Fan ARGB color follows cooling effort (PWM level), unless an effect is active
+          // or the lights are switched off
+          if (!id(allow_pid_color_control) || !id(master_lights_enabled)) {
+            return;
+          }
+
+          // Track previous RGB values to prevent redundant updates
+          static int prev_r = -1, prev_g = -1, prev_b = -1;
+
+          float pwm = state;
+          int r, g, b;
+
+          if (pwm <= 0.40) {
+            // Idle/Light cooling - use default color from globals
+            r = id(default_red);
+            g = id(default_green);
+            b = id(default_blue);
+          } else if (pwm <= 0.70) {
+            // Moderate cooling - Blue → Orange gradient
+            float ratio = (pwm - 0.40) / 0.30;
+            r = (int)(ratio * 255);
+            g = (int)(ratio * 165);
+            b = (int)((1.0 - ratio) * 255);
+          } else {
+            // Aggressive cooling - Orange → Red gradient
+            float ratio = (pwm - 0.70) / 0.30;
+            r = 255;
+            g = (int)((1.0 - ratio) * 165);
+            b = 0;
+          }
+
+          // Only update fan ARGBs if color changed by more than 2 on any channel
+          if (abs(r - prev_r) > 2 || abs(g - prev_g) > 2 || abs(b - prev_b) > 2) {
+            auto call1 = id(fan_left_argb).turn_on();
+            call1.set_rgb(r/255.0, g/255.0, b/255.0);
+            call1.perform();
+
+            auto call2 = id(fan_right_argb).turn_on();
+            call2.set_rgb(r/255.0, g/255.0, b/255.0);
+            call2.perform();
+
+            prev_r = r;
+            prev_g = g;
+            prev_b = b;
+          }
+
+# Failsafe: without a temperature reading the PID has no input, so run the fans flat out
+interval:
+  - interval: 30s
+    then:
+      - if:
+          condition:
+            lambda: 'return isnan(id(kage_temp).state);'
+          then:
+            - logger.log:
+                level: WARN
+                format: "Temperature sensor unavailable - fans forced to 100%%"
+            - output.set_level:
+                id: fan_left_pwm_output
+                level: 100%
+            - output.set_level:
+                id: fan_right_pwm_output
+                level: 100%
+
+select:
+  - platform: template
+    name: "Lighting Effect"
+    id: lighting_effect
+    optimistic: true
+    restore_value: true
+    initial_option: "Default"
+    options:
+      - "Off"
+      - "Default"
+      - "Rainbow"
+      - "Color Wipe"
+      - "Scan"
+      - "Twinkle"
+      - "Random Twinkle"
+      - "Fireworks"
+      - "Flicker"
+      - "Strobe"
+      - "Breathing"
+    set_action:
+      - if:
+          condition:
+            lambda: 'return x == "Off";'
+          then:
+            - globals.set:
+                id: master_lights_enabled
+                value: 'false'
+            - globals.set:
+                id: allow_pid_color_control
+                value: 'true'
+            - script.execute: all_lights_off
+
+      - if:
+          condition:
+            lambda: 'return x == "Default";'
+          then:
+            - globals.set:
+                id: master_lights_enabled
+                value: 'true'
+            - globals.set:
+                id: allow_pid_color_control
+                value: 'true'
+            # Stop any effect running on the strips, then set every rack unit to pure white
+            - light.turn_on:
+                id: led_strip_left
+                effect: "None"
+            - light.turn_on:
+                id: led_strip_right
+                effect: "None"
+            - script.execute: rack_units_white
+            - light.turn_on:
+                id: fan_left_argb
+                effect: "None"
+                red: !lambda 'return id(default_red)/255.0;'
+                green: !lambda 'return id(default_green)/255.0;'
+                blue: !lambda 'return id(default_blue)/255.0;'
+            - light.turn_on:
+                id: fan_right_argb
+                effect: "None"
+                red: !lambda 'return id(default_red)/255.0;'
+                green: !lambda 'return id(default_green)/255.0;'
+                blue: !lambda 'return id(default_blue)/255.0;'
+
+      # All other effects run on the full strips (partitions have no effects)
+      - if:
+          condition:
+            lambda: 'return x != "Off" && x != "Default";'
+          then:
+            - globals.set:
+                id: master_lights_enabled
+                value: 'true'
+            - globals.set:
+                id: allow_pid_color_control
+                value: 'false'
+            - light.turn_on:
+                id: led_strip_left
+                effect: !lambda 'return x;'
+                white: 0%
+            - light.turn_on:
+                id: led_strip_right
+                effect: !lambda 'return x;'
+                white: 0%
+            - light.turn_on:
+                id: fan_left_argb
+                effect: !lambda 'return x;'
+            - light.turn_on:
+                id: fan_right_argb
+                effect: !lambda 'return x;'
+
+script:
+  - id: rack_units_white
+    then:
+      - light.turn_on: { id: rack_u1, red: 0%, green: 0%, blue: 0%, white: 100% }
+      - light.turn_on: { id: rack_u2, red: 0%, green: 0%, blue: 0%, white: 100% }
+      - light.turn_on: { id: rack_u3_u6, red: 0%, green: 0%, blue: 0%, white: 100% }
+      - light.turn_on: { id: rack_u7, red: 0%, green: 0%, blue: 0%, white: 100% }
+      - light.turn_on: { id: rack_u8_u9, red: 0%, green: 0%, blue: 0%, white: 100% }
+      - light.turn_on: { id: rack_u10_u12, red: 0%, green: 0%, blue: 0%, white: 100% }
+
+  - id: all_lights_off
+    then:
+      - light.turn_off: rack_u1
+      - light.turn_off: rack_u2
+      - light.turn_off: rack_u3_u6
+      - light.turn_off: rack_u7
+      - light.turn_off: rack_u8_u9
+      - light.turn_off: rack_u10_u12
+      - light.turn_off: led_strip_left
+      - light.turn_off: led_strip_right
+      - light.turn_off: fan_left_argb
+      - light.turn_off: fan_right_argb
+
+# PID Climate Controller - Automatic temperature-based fan control
+# When mode is OFF: manual fan control works
+# When mode is COOL: automatic PID control takes over
+# Target temperature is restored from flash after a reboot; I run mine at 30 °C
+climate:
+  - platform: pid
+    name: "Kage Cooling PID"
+    id: kage_pid
+    sensor: kage_temp
+    default_target_temperature: 25.0
+    cool_output: both_fans_output
+    control_parameters:
+      kp: 0.25
+      ki: 0.002
+      kd: 0.02
+    deadband_parameters:
+      threshold_high: 1.0
+      threshold_low: -1.0
+    visual:
+      min_temperature: 15.0
+      max_temperature: 50.0
+      temperature_step: 0.5
+
+light:
+  # Fan Left ARGB
+  - platform: neopixelbus
+    type: GRB
+    variant: 800KBPS
+    pin: GPIO1 # LED3
+    num_leds: 20
+    name: "Fan Left ARGB"
+    id: fan_left_argb
+    method:
+      type: esp32_rmt
+      channel: 2
+    effects: *all_effects
+
+  # Fan Right ARGB
+  - platform: neopixelbus
+    type: GRB
+    variant: 800KBPS
+    pin: GPIO3 # LED2
+    num_leds: 20
+    name: "Fan Right ARGB"
+    id: fan_right_argb
+    method:
+      type: esp32_rmt
+      channel: 3
+    effects: *all_effects
+
+  # LED strips: 62cm at 768 LEDs/m = 10 addressable ICs (48 physical LEDs each).
+  # Internal: Home Assistant uses the partition lights below; the select runs effects on these.
+  - platform: neopixelbus
+    type: WRGB
+    variant: SK6812
+    pin: GPIO4
+    num_leds: 10
+    name: "LED Strip Left"
+    id: led_strip_left
+    internal: true
+    default_transition_length: 0s
+    method:
+      type: esp32_rmt
+      channel: 1
+    effects: *all_effects
+
+  - platform: neopixelbus
+    type: WRGB
+    variant: SK6812
+    pin: GPIO16
+    num_leds: 10
+    name: "LED Strip Right"
+    id: led_strip_right
+    internal: true
+    default_transition_length: 0s
+    method:
+      type: esp32_rmt
+      channel: 0
+    effects: *all_effects
+
+  # Partition lights — one per rack section, left + right strip combined.
+  # IC 0 is at the bottom of the rack, IC 9 at the top; U1 is the top unit.
+  # One IC covers ~6.2cm, a rack unit 4.45cm, so the top sections can't line up exactly.
+  # Mapping for my 12U cabinet:
+  #   U1 Patch Panel        IC 9
+  #   U2 Dream Machine SE   IC 8
+  #   U3-U6 DIN + blank     IC 5-7
+  #   U7 NUCs               IC 4
+  #   U8-U9 Patch + UNAS    IC 2-3
+  #   U10-U12 UPS           IC 0-1
+  - platform: partition
+    name: "Rack U1 Patch Panel"
+    id: rack_u1
+    default_transition_length: 0s
+    segments:
+      - id: led_strip_left
+        from: 9
+        to: 9
+      - id: led_strip_right
+        from: 9
+        to: 9
+
+  - platform: partition
+    name: "Rack U2 Dream Machine SE"
+    id: rack_u2
+    default_transition_length: 0s
+    segments:
+      - id: led_strip_left
+        from: 8
+        to: 8
+      - id: led_strip_right
+        from: 8
+        to: 8
+
+  - platform: partition
+    name: "Rack U3-U6 DIN"
+    id: rack_u3_u6
+    default_transition_length: 0s
+    segments:
+      - id: led_strip_left
+        from: 5
+        to: 7
+      - id: led_strip_right
+        from: 5
+        to: 7
+
+  - platform: partition
+    name: "Rack U7 NUCs"
+    id: rack_u7
+    default_transition_length: 0s
+    segments:
+      - id: led_strip_left
+        from: 4
+        to: 4
+      - id: led_strip_right
+        from: 4
+        to: 4
+
+  - platform: partition
+    name: "Rack U8-U9 Patch UNAS"
+    id: rack_u8_u9
+    default_transition_length: 0s
+    segments:
+      - id: led_strip_left
+        from: 2
+        to: 3
+      - id: led_strip_right
+        from: 2
+        to: 3
+
+  - platform: partition
+    name: "Rack U10-U12 UPS"
+    id: rack_u10_u12
+    default_transition_length: 0s
+    segments:
+      - id: led_strip_left
+        from: 0
+        to: 1
+      - id: led_strip_right
+        from: 0
+        to: 1
+
+switch:
+  - platform: template
+    name: "Rack Master Lights"
+    id: master_light_switch
+    icon: "mdi:lightbulb-group"
+    lambda: 'return id(master_lights_enabled);'
+    turn_on_action:
+      - globals.set:
+          id: master_lights_enabled
+          value: 'true'
+      - select.set:
+          id: lighting_effect
+          option: "Default"
+    turn_off_action:
+      - select.set:
+          id: lighting_effect
+          option: "Off"
+
+binary_sensor:
+  - platform: status
+    name: "Status"

@@ -2,7 +2,7 @@
 
 Caddy in front of Vaultwarden, both in Proxmox containers, with a real HTTPS certificate from a Cloudflare DNS challenge. Away from home the family reaches it through Tailscale.
 
-- Video: [Self-Host Vaultwarden on Proxmox](https://youtu.be/_aY7uoH34yA)
+- Video: [Replace Apple Passwords with Vaultwarden on Proxmox](https://youtu.be/_aY7uoH34yA)
 - Write-up: [Self-Host Vaultwarden on Proxmox](https://www.nightlyventures.com/p/self-host-vaultwarden-proxmox-apple-passwords), with every step from the two containers to the family organization
 
 Tested with Caddy 2.11.7 and Vaultwarden 1.37.4 (October 2026).

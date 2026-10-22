@@ -8,7 +8,7 @@ Configs, scripts and other files from the [Nightly Ventures](https://www.nightly
 | [3 GPUs, 1 Local AI Agent. Here's Where It Breaks.](https://youtu.be/-fmpLgSs2M8) (Feb 2026) | [`openclaw/`](openclaw/) | [Post](https://www.nightlyventures.com/p/run-openclaw-with-local-models-via-ollama) |
 | [Autonomous RGB Rack Cooling with ESPHome and QuinLED](https://www.youtube.com/watch?v=G8DM5r7OdXc) (Apr 2026) | [`esphome-rack-controller/`](esphome-rack-controller/) | [Post](https://www.nightlyventures.com/p/autonomous-rgb-rack-lighting-with-esphome-and-quinled) |
 | [Two NUCs Beat My All-in-One Homelab](https://youtu.be/GT0eXgGsZFI) (Aug 2026) | [`proxmox-backup-home-assistant/`](proxmox-backup-home-assistant/) | [Post](https://www.nightlyventures.com/p/automating-proxmox-backups-with-home-assistant) |
-| [Self-Host Vaultwarden on Proxmox](https://youtu.be/_aY7uoH34yA) (Oct 2026) | [`vaultwarden-caddy/`](vaultwarden-caddy/) | [Post](https://www.nightlyventures.com/p/self-host-vaultwarden-proxmox-apple-passwords) |
+| [Replace Apple Passwords with Vaultwarden on Proxmox](https://youtu.be/_aY7uoH34yA) (Oct 2026) | [`vaultwarden-caddy/`](vaultwarden-caddy/) | [Post](https://www.nightlyventures.com/p/self-host-vaultwarden-proxmox-apple-passwords) |
 
 Each folder's README lists the versions the files were tested with. Found something that no longer works? Open an issue.
 

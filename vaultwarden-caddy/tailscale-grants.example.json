@@ -1,0 +1,14 @@
+{
+  "grants": [
+    {
+      "src": ["you@example.com"],
+      "dst": ["*"],
+      "ip": ["*"]
+    },
+    {
+      "src": ["autogroup:member"],
+      "dst": ["CADDY_TAILSCALE_IP"],
+      "ip": ["tcp:443"]
+    }
+  ]
+}

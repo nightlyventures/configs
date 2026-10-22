@@ -1,0 +1,18 @@
+# /etc/caddy/Caddyfile
+# Replace vault.example.com and VAULTWARDEN_LAN_IP.
+vault.example.com {
+	tls {
+		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+	}
+
+	# Only if the same Caddy also serves public websites through a port forward:
+	# allow local and Tailscale addresses only. Keep this above reverse_proxy.
+	# @outside not remote_ip private_ranges 100.64.0.0/10
+	# respond @outside 403
+
+	# Only for the public option (port 443 forwarded to Caddy): hide the admin panel.
+	# @admin path /admin /admin/*
+	# respond @admin 404
+
+	reverse_proxy http://VAULTWARDEN_LAN_IP:8000
+}

@@ -4,7 +4,7 @@ A second Proxmox Backup Server (PBS) at another house, on a ZimaBoard 2 with two
 
 This builds on [`proxmox-backup-home-assistant/`](../proxmox-backup-home-assistant/): the automation here is the extended version of the one in that folder.
 
-- Video: [VIDEO_TITLE](VIDEO_URL)
+- Video: [My Homelab Backups Live at My Parents' House Now](https://youtu.be/qpIMgxrGbtA)
 - Write-up: [Offsite Proxmox Backups with a ZimaBoard 2](https://www.nightlyventures.com/p/offsite-proxmox-backups-zimaboard-2), with the PBS users, tokens, sync job and retention settings that these files rely on
 
 Tested with Proxmox Backup Server 4.2 (offsite) and 4.1 (home), Proxmox VE 9.2, Home Assistant 2026.11 and UniFi Network 11.0 (November 2026).

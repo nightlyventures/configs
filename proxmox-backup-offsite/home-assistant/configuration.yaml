@@ -1,0 +1,60 @@
+# REST commands for the offsite part of the Nightly Backup Loop.
+# pve_start_backup and pbs_shutdown are the same as in ../proxmox-backup-home-assistant/configuration.yaml.
+# OFFSITE_PBS_IP is the tunnel address of the offsite PBS, HOME_PBS_IP the LAN address of the PBS at home.
+
+wake_on_lan:
+
+rest_command:
+  pve_start_backup:
+    url: "https://PVE_IP:8006/api2/json/nodes/pve/vzdump"
+    method: POST
+    headers:
+      Authorization: !secret pve_api_token
+    content_type: "application/x-www-form-urlencoded"
+    payload: "storage=pbs&mode=snapshot&compress=zstd&all=1"
+    verify_ssl: false
+
+  pbs_shutdown:
+    url: "https://HOME_PBS_IP:8007/api2/json/nodes/localhost/status"
+    method: POST
+    headers:
+      Authorization: !secret pbs_api_token
+    content_type: "application/x-www-form-urlencoded"
+    payload: "command=shutdown"
+    verify_ssl: false
+
+  # Starts the pull sync job on the offsite PBS. The job ID goes in the path.
+  pbs_offsite_sync:
+    url: "https://OFFSITE_PBS_IP:8007/api2/json/admin/sync/SYNC_JOB_ID/run"
+    method: post
+    headers:
+      Authorization: !secret pbs_offsite_auth
+    content_type: "application/x-www-form-urlencoded"
+    verify_ssl: false
+
+  # Status of the sync task, by the UPID that pbs_offsite_sync returns.
+  pbs_offsite_task_status:
+    url: "https://OFFSITE_PBS_IP:8007/api2/json/nodes/localhost/tasks/{{ upid | urlencode }}/status"
+    method: get
+    headers:
+      Authorization: !secret pbs_offsite_auth
+    verify_ssl: false
+    timeout: 30
+
+  # All backup groups in the offsite datastore, with their last-backup time. Used by the freshness check.
+  pbs_offsite_groups:
+    url: "https://OFFSITE_PBS_IP:8007/api2/json/admin/datastore/offsite/groups"
+    method: get
+    headers:
+      Authorization: !secret pbs_offsite_auth
+    verify_ssl: false
+    timeout: 30
+
+  # Running tasks on the home PBS (verify, GC), so the loop doesn't shut it down mid-task.
+  pbs_running_tasks:
+    url: "https://HOME_PBS_IP:8007/api2/json/nodes/localhost/tasks?running=1"
+    method: get
+    headers:
+      Authorization: !secret pbs_api_token
+    verify_ssl: false
+    timeout: 30

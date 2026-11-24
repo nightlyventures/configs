@@ -9,6 +9,7 @@ Configs, scripts and other files from the [Nightly Ventures](https://www.nightly
 | [Autonomous RGB Rack Cooling with ESPHome and QuinLED](https://www.youtube.com/watch?v=G8DM5r7OdXc) (Apr 2026) | [`esphome-rack-controller/`](esphome-rack-controller/) | [Post](https://www.nightlyventures.com/p/autonomous-rgb-rack-lighting-with-esphome-and-quinled) |
 | [Two NUCs Beat My All-in-One Homelab](https://youtu.be/GT0eXgGsZFI) (Aug 2026) | [`proxmox-backup-home-assistant/`](proxmox-backup-home-assistant/) | [Post](https://www.nightlyventures.com/p/automating-proxmox-backups-with-home-assistant) |
 | [Replace Apple Passwords with Vaultwarden on Proxmox](https://youtu.be/_aY7uoH34yA) (Oct 2026) | [`vaultwarden-caddy/`](vaultwarden-caddy/) | [Post](https://www.nightlyventures.com/p/self-host-vaultwarden-proxmox-apple-passwords) |
+| [VIDEO_TITLE](VIDEO_URL) (Nov 2026) | [`proxmox-backup-offsite/`](proxmox-backup-offsite/) | [Post](https://www.nightlyventures.com/p/offsite-proxmox-backups-zimaboard-2) |
 
 Each folder's README lists the versions the files were tested with. Found something that no longer works? Open an issue.
 

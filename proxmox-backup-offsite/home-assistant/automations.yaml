@@ -1,0 +1,154 @@
+# Nightly Backup Loop: wake the home PBS, back up PVE, pull the backup offsite, shut the home PBS down.
+# Sends a notification when the backup fails, the offsite sync doesn't start or the sync fails.
+- id: nightly_backup_loop
+  alias: Nightly Backup Loop
+  triggers:
+    - trigger: time
+      at: '03:00:00'
+  actions:
+    - action: wake_on_lan.send_magic_packet
+      data:
+        broadcast_port: 9
+        mac: HOME_PBS_MAC
+    - wait_template: "{{ is_state('binary_sensor.pbs_online', 'on') }}"
+      timeout: '00:10:00'
+      continue_on_timeout: false
+    - delay: '00:00:30'
+    - action: rest_command.pve_start_backup
+    - wait_for_trigger:
+        - trigger: webhook
+          allowed_methods:
+            - POST
+            - PUT
+          local_only: true
+          webhook_id: pbs_backup_complete
+      timeout: '04:00:00'
+    # PVE sends the webhook for failed backups too. The body carries the severity.
+    - variables:
+        backup_severity: >-
+          {{ wait.trigger.get('json', {}).get('severity', 'unknown')
+             if wait.trigger else 'timeout' }}
+    - if:
+        - condition: template
+          value_template: "{{ backup_severity != 'info' }}"
+      then:
+        - action: notify.mobile_app_YOUR_PHONE
+          data:
+            title: Backup failed
+            message: "Local backup (PVE) reported '{{ backup_severity }}'. Check the PVE task history."
+    - action: rest_command.pbs_offsite_sync
+      response_variable: sync
+      continue_on_error: true
+    - if:
+        - condition: template
+          value_template: "{{ sync is defined and sync.status == 200 }}"
+      then:
+        - variables:
+            upid: "{{ sync.content.data }}"
+            task:
+              content:
+                data:
+                  status: running
+        - repeat:
+            sequence:
+              - delay: '00:01:00'
+              - action: rest_command.pbs_offsite_task_status
+                data:
+                  upid: "{{ upid }}"
+                response_variable: task
+                continue_on_error: true
+            until:
+              - condition: template
+                value_template: "{{ task.content.data.status == 'stopped' or repeat.index >= 240 }}"
+        # Read the final status once more, separately from the loop.
+        - action: rest_command.pbs_offsite_task_status
+          data:
+            upid: "{{ upid }}"
+          response_variable: final
+          continue_on_error: true
+        - if:
+            - condition: template
+              value_template: >-
+                {{ final is not defined or final.status != 200
+                   or final.content.data.get('exitstatus') != 'OK' }}
+          then:
+            - action: notify.mobile_app_YOUR_PHONE
+              data:
+                title: Offsite sync failed
+                message: >-
+                  Exit status: {{ final.content.data.get('exitstatus', 'still running')
+                  if final is defined and final.status == 200 else 'no answer from offsite PBS' }}
+      else:
+        - action: notify.mobile_app_YOUR_PHONE
+          data:
+            title: Offsite sync didn't start
+            message: "Offsite PBS answered {{ sync.status if sync is defined else 'nothing' }}."
+    # Wait for running tasks on the home PBS (up to 4 hours) before shutting it down.
+    - variables:
+        pbs_tasks:
+          status: 200
+          content:
+            data:
+              - pending
+    - repeat:
+        sequence:
+          - action: rest_command.pbs_running_tasks
+            response_variable: pbs_tasks
+            continue_on_error: true
+          - if:
+              - condition: template
+                value_template: "{{ pbs_tasks is defined and pbs_tasks.status == 200 and pbs_tasks.content.data | length > 0 }}"
+            then:
+              - delay: '00:01:00'
+        until:
+          - condition: template
+            value_template: >-
+              {{ pbs_tasks is not defined or pbs_tasks.status != 200
+                 or pbs_tasks.content.data | length == 0 or repeat.index >= 240 }}
+    - if:
+        - condition: template
+          value_template: "{{ pbs_tasks is defined and pbs_tasks.status == 200 and pbs_tasks.content.data | length > 0 }}"
+      then:
+        - action: notify.mobile_app_YOUR_PHONE
+          data:
+            title: PBS still busy
+            message: >-
+              Shutting down after 4 hours with {{ pbs_tasks.content.data | length }} task(s) running:
+              {{ pbs_tasks.content.data | map(attribute='worker_type') | join(', ') }}.
+    - action: rest_command.pbs_shutdown
+  mode: single
+
+# Backup freshness check: every morning, check the age of the newest snapshot on the offsite PBS.
+# A synced snapshot keeps the backup time of the original, so this covers home and offsite.
+- id: backup_freshness_check
+  alias: Backup freshness check
+  triggers:
+    - trigger: time
+      at: '09:00:00'
+  actions:
+    - action: rest_command.pbs_offsite_groups
+      response_variable: groups
+      continue_on_error: true
+    - variables:
+        ok: "{{ groups is defined and groups.status == 200 }}"
+        age_h: >-
+          {{ ((now().timestamp() - (groups.content.data | map(attribute='last-backup') | max)) / 3600) | round(0)
+             if ok else -1 }}
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ not ok }}"
+          sequence:
+            - action: notify.mobile_app_YOUR_PHONE
+              data:
+                title: Offsite PBS unreachable
+                message: "Freshness check got no answer (status {{ groups.status if groups is defined else 'none' }})."
+        - conditions:
+            - condition: template
+              value_template: "{{ age_h > 26 }}"
+          sequence:
+            - action: notify.mobile_app_YOUR_PHONE
+              data:
+                title: Backups are stale
+                message: "Newest offsite snapshot is {{ age_h }} hours old."
+  mode: single

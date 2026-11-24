@@ -1,0 +1,19 @@
+# Two blocks from /etc/pve/storage.cfg on Proxmox VE.
+
+# Home PBS, by hostname and without a fingerprint, so PVE checks the
+# Let's Encrypt certificate against its CA. A pinned fingerprint breaks at every renewal.
+# The Server field can't be changed in the PVE web interface; edit this file.
+pbs: pbs
+	datastore YOUR_DATASTORE
+	server pbs.example.com
+	content backup
+	username root@pam!hass
+
+# Offsite PBS, for restores only. Read-only token, and a pinned fingerprint
+# because the offsite PBS keeps its self-signed certificate.
+pbs: offsite
+	datastore offsite
+	server OFFSITE_PBS_IP
+	content backup
+	username pve@pbs!restore
+	fingerprint OFFSITE_PBS_FINGERPRINT

@@ -1,0 +1,20 @@
+# /etc/wireguard/wg0.conf on the offsite PBS.
+# Start from the config that UniFi generates for the client, then change three things:
+#   1. Remove the DNS line. PBS has no resolvconf, and wg-quick fails on it.
+#   2. AllowedIPs: the home addresses instead of 0.0.0.0/0 (see the note below).
+#   3. Add PersistentKeepalive, so the tunnel stays up from behind your parents' router.
+# chmod 600 /etc/wireguard/wg0.conf, then: systemctl enable --now wg-quick@wg0
+
+[Interface]
+PrivateKey = YOUR_CLIENT_PRIVATE_KEY
+Address = OFFSITE_PBS_IP/32
+
+[Peer]
+PublicKey = YOUR_SERVER_PUBLIC_KEY
+Endpoint = vpn.example.com:51820
+# At its final location: the whole home subnet. UniFi's firewall decides what is allowed.
+AllowedIPs = HOME_SUBNET/24
+# While the box is still on the home network, list single addresses instead,
+# or it routes its own LAN into the tunnel and you lose SSH:
+# AllowedIPs = PVE_IP/32, HOME_PBS_IP/32, HASS_IP/32, MAC_IP/32
+PersistentKeepalive = 25

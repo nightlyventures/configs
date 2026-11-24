@@ -7,6 +7,8 @@ Home Assistant wakes a Proxmox Backup Server (PBS) at 03:00, starts a backup on 
 
 Tested with Home Assistant 2026.10, Proxmox VE 9.2 and Proxmox Backup Server 4.1.
 
+An extended version of the automation, with an offsite sync and notifications when a backup fails, is in [`proxmox-backup-offsite/`](../proxmox-backup-offsite/).
+
 ## Files
 
 | File | What it does |

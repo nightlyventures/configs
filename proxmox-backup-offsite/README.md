@@ -56,3 +56,10 @@ Tested with Proxmox Backup Server 4.2 (offsite) and 4.1 (home), Proxmox VE 9.2, 
 - Backup groups that already exist under another owner fail the owner check on the first sync. Use Change Owner on those groups.
 - A fingerprint pinned in PVE or in the remote breaks the connection when the certificate is renewed. The backups then fail every night, and PVE still sends the webhook.
 - A container restored from the offsite copy keeps the IP, hostname and Start at boot setting of the original. Disconnect its network before you start it.
+
+## Security notes
+
+- The offsite datastore is not encrypted, so whoever has the box has your backups. It also holds the WireGuard key and the `sync@pbs!offsite` token. If it's lost or stolen, delete its WireGuard client in UniFi and remove the `sync@pbs!offsite` token on the home PBS: that closes the tunnel and the read access to your home datastore. If you'd rather encrypt, set an encryption key on the PBS storage in PVE, and keep a copy of the key outside your homelab.
+- The tokens from the Nightly Backup Loop are powerful. `root@pam!hass` on PVE, without privilege separation, is full root, and on the home PBS it has Admin. Whoever takes over Home Assistant can delete your guests and your local backups. The offsite copy survives that: Home Assistant's token on the offsite PBS has DatastoreBackup and DatastoreAudit, which can't delete snapshots, and PVE's `pve@pbs!restore` token is read-only. To narrow the PVE side, use a token with privilege separation and only VM.Backup on `/vms` and Datastore.AllocateSpace on `/storage/pbs`. I haven't tested that variant.
+- The webhook ID works like a password. Anyone on your network who knows it can report a "successful" backup. Use a long random `webhook_id` in the automation and the PVE target. The freshness check catches a faked success the next morning anyway.
+- The REST commands use `verify_ssl: false` because PBS starts with a self-signed certificate. If your home PBS has a public certificate, call it by hostname and set `verify_ssl: true`. Traffic to the offsite PBS goes through the WireGuard tunnel.

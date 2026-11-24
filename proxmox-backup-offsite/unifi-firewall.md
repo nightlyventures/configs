@@ -20,4 +20,5 @@ UniFi adds the return rules for the allow rules itself.
 - A block rule with Connection State *All* also blocks the replies to traffic you allowed. Set it to Custom → New.
 - The policy table sorts by name, not by the order in which rules are evaluated. The real order is the ID column: within a zone pair, the lowest ID goes first.
 - Reorder didn't work for me. Deleting and recreating the block rule did: a new rule gets the highest ID in its zone pair, so it ends up below the allow rules.
+- The two block rules only cover the Internal zone. Check the zone matrix: on a default setup, VPN → Gateway and VPN → VPN are Allow All, so the offsite PBS can still reach the gateway itself and other WireGuard clients, and they can reach it. Add block rules for those zone pairs too.
 - The firewall is only half of it. A device reaches the offsite PBS through the tunnel only if its address is also in `AllowedIPs` on the offsite PBS. Otherwise WireGuard drops the packets, whatever the firewall says.
